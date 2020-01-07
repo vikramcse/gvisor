@@ -1883,7 +1883,6 @@ func (s *Stack) RemoveTCPProbe() {
 
 // JoinGroup joins the given multicast group on the given NIC.
 func (s *Stack) JoinGroup(protocol tcpip.NetworkProtocolNumber, nicID tcpip.NICID, multicastAddr tcpip.Address) *tcpip.Error {
-	// TODO: notify network of subscription via igmp protocol.
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
