@@ -207,6 +207,16 @@ func Fcntl(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Syscall
 		return 0, nil, err
 	case linux.F_SETLK, linux.F_SETLKW:
 		return 0, nil, posixLock(t, args, file, cmd)
+	case linux.F_GETSIG:
+		a := file.AsyncHandler()
+		if a == nil {
+			// Signal zero aka default behavior aka SIGIO.
+			return 0, nil, nil
+		}
+		return uintptr(a.(*fasync.FileAsync).Signal()), nil, nil
+	case linux.F_SETSIG:
+		a := file.SetAsyncHandler(fasync.NewVFS2).(*fasync.FileAsync)
+		return 0, nil, a.SetSignal(linux.Signal(args[2].Int()))
 	default:
 		// Everything else is not yet supported.
 		return 0, nil, syserror.EINVAL

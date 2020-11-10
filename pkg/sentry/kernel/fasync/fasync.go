@@ -22,6 +22,7 @@ import (
 	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
 	"gvisor.dev/gvisor/pkg/sync"
+	"gvisor.dev/gvisor/pkg/syserror"
 	"gvisor.dev/gvisor/pkg/waiter"
 )
 
@@ -56,6 +57,10 @@ type FileAsync struct {
 	mu         sync.Mutex `state:"nosave"`
 	requester  *auth.Credentials
 	registered bool
+	// signal is the signal to deliver upon I/O being available.
+	// The default value ("zero signal") means the default SIGIO signal will be
+	// delivered.
+	signal linux.Signal
 
 	// Only one of the following is allowed to be non-nil.
 	recipientPG *kernel.ProcessGroup
@@ -84,13 +89,17 @@ func (a *FileAsync) Callback(e *waiter.Entry) {
 		return
 	}
 	c := t.Credentials()
+	signal := linux.SIGIO
+	if a.signal != 0 {
+		signal = a.signal
+	}
 	// Logic from sigio_perm in fs/fcntl.c.
 	if a.requester.EffectiveKUID == 0 ||
 		a.requester.EffectiveKUID == c.SavedKUID ||
 		a.requester.EffectiveKUID == c.RealKUID ||
 		a.requester.RealKUID == c.SavedKUID ||
 		a.requester.RealKUID == c.RealKUID {
-		t.SendSignal(kernel.SignalInfoPriv(linux.SIGIO))
+		t.SendSignal(kernel.SignalInfoPriv(signal))
 	}
 	a.mu.Unlock()
 }
@@ -185,4 +194,26 @@ func (a *FileAsync) ClearOwner() {
 	a.recipientT = nil
 	a.recipientTG = nil
 	a.recipientPG = nil
+}
+
+// Signal returns which signal will be sent to the signal recipient.
+// A value of zero means the signal to deliver wasn't customized, which means
+// the default signal (SIGIO) will be delivered.
+func (a *FileAsync) Signal() linux.Signal {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.signal
+}
+
+// SetSignal overrides which signal to send when I/O is available.
+// The default behavior can be reset by specifying signal zero, which means
+// to send SIGIO.
+func (a *FileAsync) SetSignal(signal linux.Signal) error {
+	if signal != 0 && !signal.IsValid() {
+		return syserror.EINVAL
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.signal = signal
+	return nil
 }

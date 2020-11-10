@@ -1258,9 +1258,72 @@ TEST(FcntlTest, GetOwnExPgrp) {
   EXPECT_EQ(got_owner.pid, set_owner.pid);
 }
 
+TEST(FcntlTest, SetSig) {
+  FileDescriptor s = ASSERT_NO_ERRNO_AND_VALUE(
+      Socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0));
+
+  ASSERT_THAT(syscall(__NR_fcntl, s.get(), F_SETSIG, SIGUSR1),
+              SyscallSucceedsWithValue(0));
+  MaybeSave();
+  EXPECT_THAT(syscall(__NR_fcntl, s.get(), F_GETSIG),
+              SyscallSucceedsWithValue(SIGUSR1));
+}
+
+TEST(FcntlTest, SetSigDefaultsToZero) {
+  FileDescriptor s = ASSERT_NO_ERRNO_AND_VALUE(
+      Socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0));
+
+  // Defaults to signal zero.
+  EXPECT_THAT(syscall(__NR_fcntl, s.get(), F_GETSIG),
+              SyscallSucceedsWithValue(0));
+  MaybeSave();
+}
+
+TEST(FcntlTest, SetSigToDefault) {
+  FileDescriptor s = ASSERT_NO_ERRNO_AND_VALUE(
+      Socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0));
+
+  ASSERT_THAT(syscall(__NR_fcntl, s.get(), F_SETSIG, SIGIO),
+              SyscallSucceedsWithValue(0));
+  MaybeSave();
+  EXPECT_THAT(syscall(__NR_fcntl, s.get(), F_GETSIG),
+              SyscallSucceedsWithValue(SIGIO));
+
+  // Can be reset to the "zero signal" behavior.
+  EXPECT_THAT(syscall(__NR_fcntl, s.get(), F_SETSIG, 0),
+              SyscallSucceedsWithValue(0));
+  MaybeSave();
+  EXPECT_THAT(syscall(__NR_fcntl, s.get(), F_GETSIG),
+              SyscallSucceedsWithValue(0));
+}
+
+TEST(FcntlTest, SetSigInvalid) {
+  FileDescriptor s = ASSERT_NO_ERRNO_AND_VALUE(
+      Socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0));
+
+  ASSERT_THAT(syscall(__NR_fcntl, s.get(), F_SETSIG, SIGRTMAX + 1),
+              SyscallFailsWithErrno(EINVAL));
+  MaybeSave();
+  EXPECT_THAT(syscall(__NR_fcntl, s.get(), F_GETSIG),
+              SyscallSucceedsWithValue(0));
+}
+
+TEST(FcntlTest, SetSigInvalidDoesNotResetPreviousChoice) {
+  FileDescriptor s = ASSERT_NO_ERRNO_AND_VALUE(
+      Socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0));
+
+  ASSERT_THAT(syscall(__NR_fcntl, s.get(), F_SETSIG, SIGUSR1),
+              SyscallSucceedsWithValue(0));
+  ASSERT_THAT(syscall(__NR_fcntl, s.get(), F_SETSIG, SIGRTMAX + 1),
+              SyscallFailsWithErrno(EINVAL));
+  MaybeSave();
+  EXPECT_THAT(syscall(__NR_fcntl, s.get(), F_GETSIG),
+              SyscallSucceedsWithValue(SIGUSR1));
+}
+
 // Make sure that making multiple concurrent changes to async signal generation
 // does not cause any race issues.
-TEST(FcntlTest, SetFlSetOwnDoNotRace) {
+TEST(FcntlTest, SetFlSetOwnSetSigDoNotRace) {
   FileDescriptor s = ASSERT_NO_ERRNO_AND_VALUE(
       Socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0));
 
@@ -1288,12 +1351,20 @@ TEST(FcntlTest, SetFlSetOwnDoNotRace) {
       sched_yield();
     }
   };
+  auto setSig = [&s, &runtime] {
+    for (auto start = absl::Now(); absl::Now() - start < runtime;) {
+      ASSERT_THAT(syscall(__NR_fcntl, s.get(), F_SETSIG, SIGUSR1),
+                  SyscallSucceeds());
+      sched_yield();
+    }
+  };
 
   std::list<ScopedThread> threads;
   for (int i = 0; i < 10; i++) {
     threads.emplace_back(setAsync);
     threads.emplace_back(resetAsync);
     threads.emplace_back(setOwn);
+    threads.emplace_back(setSig);
   }
 }
 

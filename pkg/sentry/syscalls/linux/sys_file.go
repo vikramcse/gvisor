@@ -1111,6 +1111,12 @@ func Fcntl(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Syscall
 		}
 		n, err := sz.SetFifoSize(int64(args[2].Int()))
 		return uintptr(n), nil, err
+	case linux.F_GETSIG:
+		a := file.Async(fasync.New).(*fasync.FileAsync)
+		return uintptr(a.Signal()), nil, nil
+	case linux.F_SETSIG:
+		a := file.Async(fasync.New).(*fasync.FileAsync)
+		return 0, nil, a.SetSignal(linux.Signal(args[2].Int()))
 	default:
 		// Everything else is not yet supported.
 		return 0, nil, syserror.EINVAL
