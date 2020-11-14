@@ -60,12 +60,14 @@ type NIC struct {
 	}
 }
 
-// NICStats includes transmitted and received stats.
+// NICStats includes statistics specific to a single NIC.
 type NICStats struct {
 	Tx DirectionStats
 	Rx DirectionStats
 
 	DisabledRx DirectionStats
+
+	Neighbor NeighborStats
 }
 
 func makeNICStats() NICStats {
