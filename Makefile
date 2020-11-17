@@ -16,7 +16,7 @@
 
 # Helpful pretty-printer.
 MAKEBANNER := \033[1;34mmake\033[0m
-submake = echo -e '$(MAKEBANNER) $1' >&2; $(MAKE) $1
+submake = echo -e '$(MAKEBANNER) $1' >&2 && $(MAKE) $1
 
 # Described below.
 OPTIONS :=
@@ -304,15 +304,17 @@ benchmark-platforms: load-benchmarks-images ## Runs benchmarks for runc and all 
 .PHONY: benchmark-platforms
 
 run-benchmark: ## Runs single benchmark and optionally sends data to BigQuery.
-	@set -xeuo pipefail; 	T=$$(mktemp --tmpdir logs.$(RUNTIME).XXXXXX); \
-	$(call submake,sudo TARGETS="$(BENCHMARKS_TARGETS)" ARGS="--runtime=$(RUNTIME) $(BENCHMARKS_ARGS)" | tee $$T); \
-	if [[ "$(BENCHMARKS_UPLOAD)" == "true" ]]; then \
-		$(call submake,run TARGETS=tools/parsers:parser ARGS="parse --debug --file=$$T \
+	@T=$$(mktemp --tmpdir logs.$(RUNTIME).XXXXXX); \
+	$(call submake,sudo TARGETS="$(BENCHMARKS_TARGETS)" ARGS="--runtime=$(RUNTIME) $(BENCHMARKS_ARGS) | tee $$T"); \
+	rc=$$?; \
+	if [[ $$rc -eq 0 ]] && [[ "$(BENCHMARKS_UPLOAD)" == "true" ]]; then \
+		$(call submake,run TARGETS="tools/parsers:parser" ARGS="parse --debug --file=$$T \
 			--runtime=$(RUNTIME) --suite_name=$(BENCHMARKS_SUITE) \
 			--project=$(BENCHMARKS_PROJECT) --dataset=$(BENCHMARKS_DATASET) \
 			--table=$(BENCHMARKS_TABLE) --official=$(BENCHMARKS_OFFICIAL)"); \
 	fi; \
-	rm -rf $$T
+	rm -rf $$T; \
+	exit $$rc
 .PHONY: run-benchmark
 
 ##

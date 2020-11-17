@@ -39,6 +39,7 @@ DOCKER_SOCKET := /var/run/docker.sock
 DOCKER_CONFIG := /etc/docker/daemon.json
 
 # Bazel flags.
+STARTUP_OPTIONS += --noshutdown_on_low_sys_mem --unlimit_coredumps
 BAZEL := bazel $(STARTUP_OPTIONS)
 OPTIONS += --color=no --curses=no
 
@@ -161,12 +162,21 @@ bazel-alias: ## Emits an alias that can be used within the shell.
 .PHONY: bazel-alias
 
 bazel-server: ## Ensures that the server exists. Used as an internal target.
-	@docker exec $(FULL_DOCKER_EXEC_OPTIONS) $(DOCKER_NAME) true || $(MAKE) bazel-server-start
+	@docker exec $(FULL_DOCKER_EXEC_OPTIONS) $(DOCKER_NAME) true >&2 || $(MAKE) bazel-server-start >&2
 .PHONY: bazel-server
 
+# build_cmd builds the given targets in the bazel-server container.
 build_cmd = docker exec $(FULL_DOCKER_EXEC_OPTIONS) $(DOCKER_NAME) sh -o pipefail -c '$(BAZEL) build $(OPTIONS) "$(TARGETS)"'
 
-build_paths = $(build_cmd) 2>&1 \
+# build_paths extracts the built binary from the bazel stderr output.
+#
+# This could be alternately done by parsing the bazel build event stream, but
+# this is a complex schema, and begs the question: what will build the thing
+# that parses the output? Bazel? Do we need a separate bootstrapping build
+# command here? Yikes, let's just stick with the ugly shell pipeline.
+#
+# The last line is used to prevent terminal shenanigans.
+build_paths = command_line=$$( $(build_cmd) 2>&1 \
 		| tee /proc/self/fd/2 \
 		| grep -A1 -E '^Target' \
 		| grep -E '^  ($(subst $(SPACE),|,$(BUILD_ROOTS)))' \
@@ -174,7 +184,8 @@ build_paths = $(build_cmd) 2>&1 \
 		| strings -n 10 \
 		| awk '{$$1=$$1};1' \
 		| xargs -n 1 -I {} readlink -f "{}" \
-		| xargs -n 1 -I {} sh -c "$(1)"
+		| xargs -n 1 -I {} echo "$(1)" ) && \
+		(set -xeuo pipefail; eval $${command_line})
 
 build: bazel-server
 	@$(call build_cmd)
@@ -199,7 +210,6 @@ test: bazel-server
 	@docker exec $(FULL_DOCKER_EXEC_OPTIONS) $(DOCKER_NAME) $(BAZEL) test $(OPTIONS) $(TARGETS)
 .PHONY: test
 
-query:
-	@$(MAKE) bazel-server >&2 # If we need to start, ensure stdout is not polluted.
+query: bazel-server
 	@docker exec $(FULL_DOCKER_EXEC_OPTIONS) $(DOCKER_NAME) sh -o pipefail -c '$(BAZEL) query $(OPTIONS) "$(TARGETS)" 2>/dev/null'
 .PHONY: query
