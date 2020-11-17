@@ -17,9 +17,8 @@ package testbench
 import (
 	"context"
 	"encoding/binary"
-	"flag"
+	"fmt"
 	"net"
-	"strconv"
 	"syscall"
 	"testing"
 	"time"
@@ -35,18 +34,26 @@ import (
 type DUT struct {
 	conn        *grpc.ClientConn
 	posixServer POSIXClient
+	Net         *DUTTestNet
 }
 
 // NewDUT creates a new connection with the DUT over gRPC.
 func NewDUT(t *testing.T) DUT {
 	t.Helper()
+	n := GetDUTTestNet()
+	dut := n.ConnectToDUT(t)
+	t.Cleanup(func() {
+		dut.TearDown()
+		dut.Net.Release()
+	})
+	return dut
+}
 
-	flag.Parse()
-	if err := genPseudoFlags(); err != nil {
-		t.Fatal("generating psuedo flags:", err)
-	}
+// ConnectToDUT connects to DUT through gRPC.
+func (n *DUTTestNet) ConnectToDUT(t *testing.T) DUT {
+	t.Helper()
 
-	posixServerAddress := POSIXServerIP + ":" + strconv.Itoa(POSIXServerPort)
+	posixServerAddress := net.JoinHostPort(n.POSIXServerIP.String(), fmt.Sprintf("%d", n.POSIXServerPort))
 	conn, err := grpc.Dial(posixServerAddress, grpc.WithInsecure(), grpc.WithKeepaliveParams(keepalive.ClientParameters{Timeout: RPCKeepalive}))
 	if err != nil {
 		t.Fatalf("failed to grpc.Dial(%s): %s", posixServerAddress, err)
@@ -55,10 +62,12 @@ func NewDUT(t *testing.T) DUT {
 	return DUT{
 		conn:        conn,
 		posixServer: posixServer,
+		Net:         n,
 	}
 }
 
-// TearDown closes the underlying connection.
+// TearDown closes the underlying connection and puts the DUTNet back into the pool
+// so that other tests can use.
 func (dut *DUT) TearDown() {
 	dut.conn.Close()
 }
@@ -132,7 +141,7 @@ func (dut *DUT) CreateBoundSocket(t *testing.T, typ, proto int32, addr net.IP) (
 		fd = dut.Socket(t, unix.AF_INET6, typ, proto)
 		sa := unix.SockaddrInet6{}
 		copy(sa.Addr[:], addr.To16())
-		sa.ZoneId = uint32(RemoteInterfaceID)
+		sa.ZoneId = dut.Net.RemoteDevID
 		dut.Bind(t, fd, &sa)
 	} else {
 		t.Fatalf("invalid IP address: %s", addr)
@@ -154,7 +163,7 @@ func (dut *DUT) CreateBoundSocket(t *testing.T, typ, proto int32, addr net.IP) (
 func (dut *DUT) CreateListener(t *testing.T, typ, proto, backlog int32) (int32, uint16) {
 	t.Helper()
 
-	fd, remotePort := dut.CreateBoundSocket(t, typ, proto, net.ParseIP(RemoteIPv4))
+	fd, remotePort := dut.CreateBoundSocket(t, typ, proto, dut.Net.RemoteIPv4)
 	dut.Listen(t, fd, backlog)
 	return fd, remotePort
 }
