@@ -662,6 +662,25 @@ func TestIPv4Sanity(t *testing.T) {
 			},
 		},
 		{
+			// timestamp pointer cannot be less than 5
+			name:              "timestamp pointer too small",
+			maxTotalLength:    ipv4.MaxTotalSize,
+			transportProtocol: uint8(header.ICMPv4ProtocolNumber),
+			TTL:               ttl,
+			options: header.IPv4Options{
+				68, 20, 0, 0x01,
+				0, 0, 0, 0,
+				0, 0, 0, 0,
+				0, 0, 0, 0,
+				0, 0, 0, 0,
+			},
+			shouldFail:          true,
+			expectErrorICMP:     true,
+			ICMPType:            header.ICMPv4ParamProblem,
+			ICMPCode:            header.ICMPv4UnusedCode,
+			paramProblemPointer: header.IPv4MinimumSize + 2,
+		},
+		{
 			// Needs 8 bytes for a type 1 timestamp but there are only 4 free.
 			name:              "bad timer element alignment",
 			maxTotalLength:    ipv4.MaxTotalSize,
@@ -790,6 +809,23 @@ func TestIPv4Sanity(t *testing.T) {
 				17, 18, 19, 20,
 				0, // padding to multiple of 4 bytes.
 			},
+		},
+		{
+			// Pointer too small.
+			name:              "record route with pointer too small",
+			maxTotalLength:    ipv4.MaxTotalSize,
+			transportProtocol: uint8(header.ICMPv4ProtocolNumber),
+			TTL:               ttl,
+			options: header.IPv4Options{
+				7, 8, 0, // 3 byte header
+				0, 0, 0, 0,
+				0,
+			},
+			shouldFail:          true,
+			expectErrorICMP:     true,
+			ICMPType:            header.ICMPv4ParamProblem,
+			ICMPCode:            header.ICMPv4UnusedCode,
+			paramProblemPointer: header.IPv4MinimumSize + 2,
 		},
 		{
 			// Confirm linux bug for bug compatibility.

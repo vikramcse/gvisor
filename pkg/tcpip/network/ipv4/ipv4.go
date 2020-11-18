@@ -1129,6 +1129,10 @@ func handleTimestamp(tsOpt header.IPv4OptionTimestamp, localAddress tcpip.Addres
 	}
 
 	pointer := tsOpt.Pointer()
+	// RFC 791 page 22 states:  "The smallest legal value is 5."
+	if pointer < 5 {
+		return header.IPv4OptTSPointerOffset, errIPv4TimestampOptInvalidPointer
+	}
 	// To simplify processing below, base further work on the array of timestamps
 	// beyond the header, rather than on the whole option. Also to aid
 	// calculations set 'nextSlot' to be 0 based as in the packet it is 1 based.
@@ -1215,7 +1219,13 @@ func handleRecordRoute(rrOpt header.IPv4OptionRecordRoute, localAddress tcpip.Ad
 		return header.IPv4OptionLengthOffset, errIPv4RecordRouteOptInvalidLength
 	}
 
-	nextSlot := rrOpt.Pointer() - 1 // Pointer is 1 based.
+	nextSlot := rrOpt.Pointer()
+	// RFC 791 page 20 states:
+	//      The pointer is relative to this option, and the
+	//      smallest legal value for the pointer is 4.
+	if nextSlot < 4 {
+		return header.IPv4OptRRPointerOffset, errIPv4RecordRouteOptInvalidPointer
+	}
 
 	// RFC 791 page 21 says
 	//       If the route data area is already full (the pointer exceeds the
@@ -1230,14 +1240,14 @@ func handleRecordRoute(rrOpt header.IPv4OptionRecordRoute, localAddress tcpip.Ad
 	// do this (as do most implementations). It is probable that the inclusion
 	// of these words is a copy/paste error from the timestamp option where
 	// there are two failure reasons given.
-	if nextSlot >= optlen {
+	if nextSlot > optlen {
 		return 0, nil
 	}
 
 	// The data area isn't full but there isn't room for a new entry.
 	// Either Length or Pointer could be bad. We must select Pointer for Linux
-	// compatibility, even if only the length is bad.
-	if nextSlot+header.IPv4AddressSize > optlen {
+	// compatibility, even if only the length is bad. NB. pointer is 1 based.
+	if nextSlot+header.IPv4AddressSize > optlen+1 {
 		if false {
 			// This is what we would do if we were not being Linux compatible.
 			// Check for bad pointer or length value. Must be a multiple of 4 after
