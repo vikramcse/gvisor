@@ -225,21 +225,6 @@ func (n *neighborCache) addStaticEntry(addr tcpip.Address, linkAddr tcpip.LinkAd
 	n.cache[addr] = newStaticNeighborEntry(n.nic, addr, linkAddr, n.state)
 }
 
-// removeEntryLocked removes the specified entry from the neighbor cache.
-func (n *neighborCache) removeEntryLocked(entry *neighborEntry) {
-	if entry.neigh.State != Static {
-		n.dynamic.lru.Remove(entry)
-		n.dynamic.count--
-	}
-	if entry.neigh.State != Failed {
-		entry.dispatchRemoveEventLocked()
-	}
-	entry.setStateLocked(Unknown)
-	entry.notifyWakersLocked()
-
-	delete(n.cache, entry.neigh.Addr)
-}
-
 // removeEntry removes a dynamic or static entry by address from the neighbor
 // cache. Returns true if the entry was found and deleted.
 func (n *neighborCache) removeEntry(addr tcpip.Address) bool {
@@ -254,7 +239,17 @@ func (n *neighborCache) removeEntry(addr tcpip.Address) bool {
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 
-	n.removeEntryLocked(entry)
+	if entry.neigh.State != Static {
+		n.dynamic.lru.Remove(entry)
+		n.dynamic.count--
+	}
+	if entry.neigh.State != Failed {
+		entry.dispatchRemoveEventLocked()
+	}
+	entry.setStateLocked(Unknown)
+	entry.notifyWakersLocked()
+
+	delete(n.cache, entry.neigh.Addr)
 	return true
 }
 

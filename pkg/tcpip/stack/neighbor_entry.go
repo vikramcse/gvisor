@@ -258,8 +258,16 @@ func (e *neighborEntry) setStateLocked(next NeighborState) {
 
 	case Failed:
 		e.notifyWakersLocked()
+		addr := e.neigh.Addr
 		e.job = e.nic.stack.newJob(&e.mu, func() {
-			e.nic.neigh.removeEntryLocked(e)
+			// TODO(gvisor.dev/issue/4796): The below locking is safe but messy
+			// and needs to be removed as soon as possible. It is okay for the
+			// entry to be changed in between locks here since removing from the
+			// neighorCache is a noop if the entry is not found.
+			e.mu.Unlock()
+			defer e.mu.Lock()
+
+			_ = e.nic.neigh.removeEntry(addr)
 		})
 		e.job.Schedule(config.UnreachableTime)
 
