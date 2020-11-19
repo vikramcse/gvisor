@@ -103,10 +103,10 @@ func (r *reassembler) process(first, last uint16, more bool, proto uint8, pkt *s
 			r.pkt = pkt
 			r.proto = proto
 		}
-		vv := pkt.Data
 		// We store the incoming packet only if it filled some holes.
-		heap.Push(&r.heap, fragment{offset: first, vv: vv.Clone(nil)})
+		vv := pkt.Data
 		consumed = vv.Size()
+		heap.Push(&r.heap, fragment{offset: first, vv: vv.ToOwnedView().ToVectorisedView()})
 		r.size += consumed
 	}
 	// Check if all the holes have been deleted and we are ready to reassamble.
